@@ -4,12 +4,14 @@ export type DemandSlot = {
   end: string;
   requiredGuards: number;
   requiredSkill?: string | null;
+  requiredRoles?: Record<string, number>;
 };
 
 export type GuardProfile = {
   guardId: string;
   name: string;
   skills: string[];
+  roles?: string[];
   maxHoursPerWeek?: number | null;
   priority?: number;
 };
@@ -19,6 +21,13 @@ export type Assignment = {
   guardId: string;
   start: string;
   end: string;
+  role?: string | null;
+};
+
+export type RoleCoverageSummary = {
+  role: string;
+  required: number;
+  assigned: number;
 };
 
 export type RosterKPI = {
@@ -42,6 +51,9 @@ export type RosterResult = {
   assignments: Assignment[];
   kpis: RosterKPI[];
   comparisons: ScenarioComparison[];
+  mode: 'aggregate' | 'role-aware';
+  roleCoverage: RoleCoverageSummary[];
+  alerts: string[];
 };
 
 export type EngineCriteria = {

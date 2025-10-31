@@ -20,6 +20,7 @@ const toggleDefaults = {
   allowOvertime: false,
   prioritizeRest: true,
   dynamicSizing: true,
+  roleAwareSimulation: false,
 };
 
 export function ControlPanel({ onSubmit }: ControlPanelProps) {
@@ -95,6 +96,13 @@ export function ControlPanel({ onSubmit }: ControlPanelProps) {
               description="Iteratively adjust guard pool for feasibility"
               value={toggles.dynamicSizing}
               onChange={handleToggleChange('dynamicSizing')}
+            />
+            <ToggleSwitch
+              id="role-aware"
+              label="Role Matrix"
+              description="Require each shift to meet leader/specialist quotas"
+              value={toggles.roleAwareSimulation}
+              onChange={handleToggleChange('roleAwareSimulation')}
             />
           </div>
         </div>

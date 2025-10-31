@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 try:  # pragma: no cover - import guard to keep module importable without ortools
     from ortools.sat.python import cp_model
@@ -37,6 +37,7 @@ class GuardProfile:
     guard_id: str
     name: str
     skills: Sequence[str] = field(default_factory=tuple)
+    roles: Sequence[str] = field(default_factory=tuple)
     max_hours_per_week: Optional[float] = None
     priority: int = 0
 
@@ -50,6 +51,7 @@ class DemandSlot:
     end: datetime
     required_guards: int = 1
     required_skill: Optional[str] = None
+    required_roles: Dict[str, int] = field(default_factory=dict)
 
     def duration_hours(self) -> float:
         """Return the duration of the slot in hours."""
@@ -69,6 +71,7 @@ class HardConstraintSpec:
 
     enforce_coverage: bool = True
     enforce_skill_requirements: bool = True
+    enforce_role_coverage: bool = False
     max_consecutive_days: Optional[int] = None
     min_break_hours: Optional[float] = None
     rest_window_hours: Optional[float] = None
@@ -102,9 +105,10 @@ class RosterResult:
     assignments: Dict[str, List[str]]
     objective_value: Optional[float]
     violation_summaries: Dict[str, Dict[str, float]]
-    coverage: Dict[str, Dict[str, int]]
+    coverage: Dict[str, Dict[str, Any]]
     status: str
     solver_statistics: Optional[str] = None
+    assignment_roles: Dict[str, Dict[str, Optional[str]]] = field(default_factory=dict)
 
 
 @dataclass
@@ -137,7 +141,11 @@ class RosterEngine:
         model = cp_model.CpModel()
         assignments: Dict[Tuple[int, int], cp_model.IntVar] = {}
         penalty_terms: List[Tuple[int, cp_model.IntVar, str]] = []
-        coverage_stats: Dict[str, Dict[str, int]] = {}
+        coverage_stats: Dict[str, Dict[str, Any]] = {}
+        guard_role_sets = [
+            set(getattr(guard, "roles", ())) | set(guard.skills)
+            for guard in guards
+        ]
 
         for g_idx, guard in enumerate(guards):
             for s_idx, slot in enumerate(demand_slots):
@@ -153,13 +161,32 @@ class RosterEngine:
         # Coverage constraints
         for s_idx, slot in enumerate(demand_slots):
             assigned = [assignments[(g_idx, s_idx)] for g_idx in range(len(guards))]
-            required = slot.required_guards
-            coverage_stats[slot.slot_id] = {"required": required}
+            role_requirements = slot.required_roles or {}
+            total_role_required = sum(role_requirements.values())
+            required_total = max(slot.required_guards, total_role_required)
+            coverage_stats[slot.slot_id] = {
+                "required": required_total,
+            }
+            if role_requirements:
+                role_stats: Dict[str, Dict[str, int]] = {}
+                for role, count in role_requirements.items():
+                    role_stats[role] = {"required": count, "assigned": 0}
+                    if self.constraint_config.hard.enforce_role_coverage:
+                        eligible = [
+                            assignments[(g_idx, s_idx)]
+                            for g_idx, role_set in enumerate(guard_role_sets)
+                            if role in role_set
+                        ]
+                        if eligible:
+                            model.Add(sum(eligible) >= count)
+                        else:
+                            model.Add(sum([]) >= count)
+                coverage_stats[slot.slot_id]["roles"] = role_stats
             if self.constraint_config.hard.enforce_coverage:
-                model.Add(sum(assigned) >= required)
+                model.Add(sum(assigned) >= required_total)
             else:
-                slack = model.NewIntVar(0, required, f"coverage_slack_{s_idx}")
-                model.Add(sum(assigned) + slack >= required)
+                slack = model.NewIntVar(0, required_total, f"coverage_slack_{s_idx}")
+                model.Add(sum(assigned) + slack >= required_total)
                 penalty_terms.append(
                     (
                         self.constraint_config.soft.coverage_shortfall,
@@ -346,24 +373,60 @@ class RosterEngine:
         status_name = solver.StatusName(status)
         feasible = status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
         assignments_output: Dict[str, List[str]] = {guard.guard_id: [] for guard in guards}
+        assignment_roles: Dict[str, Dict[str, Optional[str]]] = {
+            guard.guard_id: {} for guard in guards
+        }
 
         if feasible:
+            for slot_stats in coverage_stats.values():
+                roles_map = slot_stats.get("roles")
+                if isinstance(roles_map, dict):
+                    for role_info in roles_map.values():
+                        role_info["assigned"] = 0
+
+            assigned_by_slot: Dict[int, List[int]] = {}
             for (g_idx, s_idx), var in assignments.items():
                 if solver.BooleanValue(var):
                     guard_id = guards[g_idx].guard_id
                     slot_id = demand_slots[s_idx].slot_id
                     assignments_output[guard_id].append(slot_id)
+                    assignment_roles[guard_id][slot_id] = None
+                    assigned_by_slot.setdefault(s_idx, []).append(g_idx)
 
             for s_idx, slot in enumerate(demand_slots):
-                assigned_count = sum(
-                    1
-                    for g_idx in range(len(guards))
-                    if solver.BooleanValue(assignments[(g_idx, s_idx)])
-                )
-                coverage_stats[slot.slot_id]["assigned"] = assigned_count
+                guard_indices = assigned_by_slot.get(s_idx, [])
+                slot_stats = coverage_stats[slot.slot_id]
+                slot_stats["assigned"] = len(guard_indices)
+                if not guard_indices:
+                    continue
+
+                remaining_roles = dict(slot.required_roles)
+                for g_idx in guard_indices:
+                    guard_id = guards[g_idx].guard_id
+                    slot_id = slot.slot_id
+                    assigned_role: Optional[str] = None
+                    guard_roles = guard_role_sets[g_idx]
+                    for role, remaining in remaining_roles.items():
+                        if remaining > 0 and role in guard_roles:
+                            assigned_role = role
+                            remaining_roles[role] -= 1
+                            break
+                    assignment_roles[guard_id][slot_id] = assigned_role
+                    roles_map = slot_stats.get("roles")
+                    if (
+                        assigned_role
+                        and isinstance(roles_map, dict)
+                        and assigned_role in roles_map
+                    ):
+                        roles_map[assigned_role]["assigned"] += 1
         else:
             for slot in demand_slots:
-                coverage_stats[slot.slot_id].setdefault("assigned", 0)
+                slot_stats = coverage_stats[slot.slot_id]
+                slot_stats.setdefault("assigned", 0)
+                roles_map = slot_stats.get("roles")
+                if isinstance(roles_map, dict):
+                    for role_info in roles_map.values():
+                        role_info.setdefault("assigned", 0)
 
         violation_summaries: Dict[str, Dict[str, float]] = {}
         if penalty_terms and feasible:
@@ -395,6 +458,7 @@ class RosterEngine:
             coverage=coverage_stats,
             status=status_name,
             solver_statistics=solver_stats,
+            assignment_roles=assignment_roles,
         )
 
     def find_minimum_staffing(
