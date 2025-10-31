@@ -1,0 +1,5 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.26.0
+
+# Optional but recommended for running the rostering engine
+ortools>=9.7.2996
