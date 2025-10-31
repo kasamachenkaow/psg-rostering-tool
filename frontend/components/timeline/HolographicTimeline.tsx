@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import clsx from 'clsx';
 import type { Assignment } from '@/types/roster';
+import { getRoleBadgeClass, getRoleGradient } from '@/lib/roleStyles';
 
 interface HolographicTimelineProps {
   assignments: Assignment[];
@@ -13,8 +14,6 @@ const timelineVariants = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0 },
 };
-
-const colors = ['from-neon-cyan/70 to-neon-blue/40', 'from-neon-indigo/70 to-neon-blue/40', 'from-holo-200/70 to-holo-400/40'];
 
 function formatHour(date: string) {
   const d = new Date(date);
@@ -54,7 +53,7 @@ export function HolographicTimeline({ assignments, visibleGuardIds }: Holographi
               <span className="text-xs text-slate-300/70">{guardAssignments.length} missions</span>
             </div>
             <div className="space-y-2">
-              {guardAssignments.map((assignment, idx) => (
+              {guardAssignments.map((assignment) => (
                 <motion.div
                   key={`${assignment.slotId}-${assignment.start}`}
                   initial={{ width: 0, opacity: 0 }}
@@ -66,7 +65,7 @@ export function HolographicTimeline({ assignments, visibleGuardIds }: Holographi
                   transition={{ duration: 0.6, ease: 'easeOut' }}
                   className={clsx(
                     'relative flex items-center rounded-xl border border-cyan-300/30 bg-gradient-to-r p-3 text-sm shadow-holo',
-                    colors[idx % colors.length]
+                    getRoleGradient(assignment.role)
                   )}
                 >
                   <div className="flex-1">
@@ -75,8 +74,13 @@ export function HolographicTimeline({ assignments, visibleGuardIds }: Holographi
                       {formatHour(assignment.start)} – {formatHour(assignment.end)}
                     </p>
                   </div>
-                  <span className="rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-100/80">
-                    Active
+                  <span
+                    className={clsx(
+                      'rounded-full px-2 py-1 text-[10px] uppercase tracking-[0.2em] shadow-holo',
+                      getRoleBadgeClass(assignment.role)
+                    )}
+                  >
+                    {assignment.role ?? 'General'}
                   </span>
                 </motion.div>
               ))}

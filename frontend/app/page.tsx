@@ -6,6 +6,7 @@ import { HolographicTimeline } from '@/components/timeline/HolographicTimeline';
 import { HoloCard } from '@/components/ui/HoloCard';
 import { KPIPanel } from '@/components/dashboard/KPIPanel';
 import { ScenarioComparison } from '@/components/dashboard/ScenarioComparison';
+import { RoleCoverageSummary } from '@/components/dashboard/RoleCoverageSummary';
 import { useRosteringEngine } from '@/lib/rosterClient';
 import type { RosterResult } from '@/types/roster';
 
@@ -27,24 +28,35 @@ const mockResult: RosterResult = {
       guardId: 'Echo-7',
       start: timeAt(6),
       end: timeAt(10),
+      role: 'Leader',
     },
     {
-      slotId: 'B2',
-      guardId: 'Echo-7',
-      start: timeAt(12),
-      end: timeAt(16),
+      slotId: 'A1',
+      guardId: 'Atlas-4',
+      start: timeAt(6),
+      end: timeAt(10),
+      role: 'Technician',
     },
     {
       slotId: 'C3',
-      guardId: 'Atlas-4',
+      guardId: 'Echo-7',
+      start: timeAt(12),
+      end: timeAt(16),
+      role: 'Leader',
+    },
+    {
+      slotId: 'B2',
+      guardId: 'Nova-2',
       start: timeAt(8),
       end: timeAt(14),
+      role: 'Supervisor',
     },
     {
       slotId: 'D4',
-      guardId: 'Nova-2',
-      start: timeAt(14),
+      guardId: 'Vanguard-9',
+      start: timeAt(16),
       end: timeAt(20),
+      role: 'Technician',
     },
   ],
   kpis: [
@@ -57,6 +69,13 @@ const mockResult: RosterResult = {
     { name: 'Beta Shield', objectiveValue: 1365, coverageScore: 0.94, fairnessScore: 0.88, feasibility: true },
     { name: 'Gamma Drift', objectiveValue: 1432, coverageScore: 0.89, fairnessScore: 0.76, feasibility: false },
   ],
+  mode: 'role-aware',
+  roleCoverage: [
+    { role: 'Leader', required: 2, assigned: 2 },
+    { role: 'Supervisor', required: 1, assigned: 1 },
+    { role: 'Technician', required: 2, assigned: 2 },
+  ],
+  alerts: [],
 };
 
 export default function CommandCenterPage() {
@@ -65,8 +84,9 @@ export default function CommandCenterPage() {
 
   const assignmentSummary = useMemo(() => {
     const guards = Array.from(new Set(activeResult.assignments.map((assignment) => assignment.guardId)));
-    return `${guards.length} active agents | ${activeResult.assignments.length} assignments`;
-  }, [activeResult.assignments]);
+    const modeSummary = activeResult.mode === 'role-aware' ? 'Per-role simulation' : 'Aggregate simulation';
+    return `${guards.length} active agents | ${activeResult.assignments.length} assignments • ${modeSummary}`;
+  }, [activeResult.assignments, activeResult.mode]);
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-12">
@@ -83,7 +103,18 @@ export default function CommandCenterPage() {
         <ControlPanel onSubmit={sendCriteria} />
         <div className="space-y-6">
           <HoloCard title="Tactical Overview" subtitle={assignmentSummary}>
+            {activeResult.alerts.length > 0 && (
+              <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 p-4 text-xs text-rose-100">
+                <p className="font-mono uppercase tracking-[0.3em] text-rose-200">Role Coverage Alerts</p>
+                <ul className="mt-2 space-y-1">
+                  {activeResult.alerts.map((alert) => (
+                    <li key={alert}>• {alert}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <HolographicTimeline assignments={activeResult.assignments} />
+            <RoleCoverageSummary coverage={activeResult.roleCoverage} mode={activeResult.mode} />
           </HoloCard>
           <HoloCard title="Mission KPIs" subtitle="Operational telemetry snapshot" glow="cyan">
             <KPIPanel kpis={activeResult.kpis} />
